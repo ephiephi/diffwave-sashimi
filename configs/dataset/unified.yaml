@@ -1,0 +1,4 @@
+_name_: unified
+data_path: /data/ephraim/datasets/unified2/
+segment_length: 24000
+sampling_rate: 16000

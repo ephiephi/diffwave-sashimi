@@ -18,11 +18,11 @@ generate:
   batch_size: null # Number of samples to generate at once per GPU. null means max (equal to samples_per_gpu)
   mel_path: null # Folder of preprocessed spectrograms (optional)
   mel_name: null # Name of specific spectrogram to condition on (set to null for unconditional, set to an audio file name for vocoding)
-  guid_s: 0.000007
-  noisy_signal: /data/ephraim/datasets/known_noise/noisy_wav/digits_snr10_var0.00047484078095294535.wav #path to noisy file
+  guid_s: 0.000
+  noisy_signal: /data/ephraim/datasets/known_noise/noisy_wav/digits_snr10_var0.0004744823672808707.wav #path to noisy file
   cur_noise_var: null
-  guidance: True
-  addedoutputpath: /data/ephraim/datasets/known_noise/enhanced_diffwave/
+  guidance: False
+  
 
 distributed:
   dist_backend: nccl

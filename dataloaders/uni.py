@@ -14,6 +14,7 @@ from typing import Tuple
 import torchaudio
 from torch.utils.data import Dataset
 from torch import Tensor
+
 # from torchaudio.datasets.utils import (
 #     #download_url,
 #     extract_archive,
@@ -34,20 +35,20 @@ def fix_length(tensor, length):
         return tensor
 
 
-def load_speechcommands_item(filepath: str, path: str):
+def load_uni_item(filepath: str, path: str):
     relpath = os.path.relpath(filepath, path)
     label, filename = os.path.split(relpath)
-    speaker, _ = os.path.splitext(filename)
+    # speaker, _ = os.path.splitext(filename)
 
-    speaker_id, utterance_number = speaker.split(HASH_DIVIDER)
-    utterance_number = int(utterance_number)
+    # speaker_id, utterance_number = speaker.split(HASH_DIVIDER)
+    # utterance_number = int(utterance_number)
 
     # Load audio
     waveform, sample_rate = torchaudio.load(filepath)
-    return (fix_length(waveform, length=16000), sample_rate, label)
+    return (fix_length(waveform, length=24000), sample_rate, label)
 
 
-class SpeechCommands(Dataset):
+class Unified(Dataset):
     """
     Create a Dataset for Speech Commands. Each item is a tuple of the form:
     waveform, sample_rate, label
@@ -56,14 +57,17 @@ class SpeechCommands(Dataset):
     def __init__(self, path: str):
         self._path = path  # os.path.join(root, folder_in_archive)
         # walker = walk_files(self._path, suffix=".wav", prefix=True)
-        walker = sorted(str(p) for p in Path(self._path).glob("**/*.wav"))
-        
-        walker = filter(lambda w: HASH_DIVIDER in w and EXCEPT_FOLDER not in w, walker)
-        self._walker = list(walker)
+        # walker = sorted(str(p) for p in Path(self._path).glob("**/*.wav"))
+
+        # walker = filter(lambda w: HASH_DIVIDER in w and EXCEPT_FOLDER not in w, walker)
+        files = [
+            os.path.join(path, f.rstrip()) for f in os.listdir(path) if f[-4:] == ".wav"
+        ]
+        self._walker = list(files)
 
     def __getitem__(self, n: int) -> Tuple[Tensor, int, str, str, int]:
-        fileid = self._walker[n]
-        return load_speechcommands_item(fileid, self._path)
+        filepath = self._walker[n]
+        return load_uni_item(filepath, self._path)
 
     def __len__(self) -> int:
         return len(self._walker)
