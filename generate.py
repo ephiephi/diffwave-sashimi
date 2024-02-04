@@ -20,7 +20,10 @@ from scipy.io.wavfile import write as wavwrite
 from models import construct_model
 from utils import find_max_epoch, print_size, calc_diffusion_hyperparams, local_directory, smooth_ckpt
 
-def sampling(net, size, diffusion_hyperparams, condition=None):
+import glob
+import torchaudio
+
+def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy_signal=None, cur_noise_var=None, guidance=False):
     """
     Perform the complete sampling step according to p(x_0|x_T) = \prod_{t=1}^T p_{\theta}(x_{t-1}|x_t)
 
@@ -44,14 +47,61 @@ def sampling(net, size, diffusion_hyperparams, condition=None):
 
     print('begin sampling, total number of reverse steps = %s' % T)
 
+    if guidance:
+        POWER_X0 = 261.34 #1sec
+        # POWER_X0 = 1196.2209 #5sec
+        POWER_NOISE = 0.0005
+        noisy_signal_, sr = torchaudio.load(noisy_signal)
+        # size=(size[0],size[1],noisy_signal_.shape[1])
+        y_noisy = torch.zeros(*size)
+        print(noisy_signal_.shape)
+        print(size)
+        if noisy_signal_.shape[1] < size[2]:
+            y_noisy[0,:,:] = noisy_signal_
+        else:
+            y_noisy[0,:,:] = noisy_signal_[:,:size[2]]
+            
+        power_y_noisy = 1 / y_noisy.shape[1] * torch.sum(y_noisy**2)
+        k_square = POWER_X0/(power_y_noisy - POWER_NOISE)
+        
+        y_noisy = torch.sqrt(k_square)*y_noisy
+        y_noisy=y_noisy.cuda()
+        cur_noise_var = float(noisy_signal.split("var")[1].split(".wav")[0])
+        print("cur_noise_var: ", cur_noise_var)
+        cur_noise_var = k_square * cur_noise_var
+        
+    # torch.manual_seed(0)
     x = torch.normal(0, 1, size=size).cuda()
     with torch.no_grad():
         for t in tqdm(range(T-1, -1, -1)):
             diffusion_steps = (t * torch.ones((size[0], 1))).cuda()  # use the corresponding reverse step
             epsilon_theta = net((x, diffusion_steps,), mel_spec=condition)  # predict \epsilon according to \epsilon_\theta
-            x = (x - (1-Alpha[t])/torch.sqrt(1-Alpha_bar[t]) * epsilon_theta) / torch.sqrt(Alpha[t])  # update x_{t-1} to \mu_\theta(x_t)
+            mu_theta = (x - (1-Alpha[t])/torch.sqrt(1-Alpha_bar[t]) * epsilon_theta) / torch.sqrt(Alpha[t])  # update x_{t-1} to \mu_\theta(x_t)
+            if not guidance:
+                x = mu_theta
+            else:
+                # print("Alpha_bar[t]: ", Alpha_bar[t])
+                c3 = 1 / torch.sqrt(Alpha_bar[t])
+                c4 = ((1 - Alpha_bar[t]) ** 2) / Alpha_bar[t]
+                # print("c3: ", c3)
+                # print("c4: ", c4)
+                # print("x_before: ", x)
+                grad_log_p = c3 * (y_noisy - c3 * x) / (c4 + cur_noise_var) ** 2
+                x = mu_theta + guid_s * Sigma[t] * grad_log_p
+                # print("x_after: ", x)
+                # print("guid_s: ", guid_s)
+                # print("y_noisy: ", y_noisy)
+                # print("grad_log_p: ", grad_log_p)
+                # print("Sigma[t]:", Sigma[t])
             if t > 0:
                 x = x + Sigma[t] * torch.normal(0, 1, size=size).cuda()  # add the variance term to x_{t-1}
+    power_x0 = 1 / x.shape[1] * torch.sum(x**2)
+    # power_y_noisy = 1 / y_noisy.shape[1] * torch.sum(y_noisy**2)
+    print("power_x0: ", power_x0)
+    if True:
+        wavwrite(os.path.join("/data/ephraim/datasets/known_noise/explore_powers/", str(float(power_x0))+".wav"),
+            16000,
+            x.squeeze().cpu().numpy())
     return x
 
 
@@ -68,6 +118,7 @@ def generate(
         ckpt_smooth=None,
         mel_path=None, mel_name=None,
         dataloader=None,
+        guid_s=0.1, noisy_signal=None, cur_noise_var=None, guidance=False, addedoutputpath=None
     ):
     """
     Generate audio based on ground truth mel spectrogram
@@ -80,7 +131,7 @@ def generate(
     mel_path, mel_name (str):       condition on spectrogram "{mel_path}/{mel_name}.wav.pt"
     # dataloader:                     condition on spectrograms provided by dataloader
     """
-
+    
     if rank is not None:
         print(f"rank {rank} {torch.cuda.device_count()} GPUs")
         torch.cuda.set_device(rank % torch.cuda.device_count())
@@ -173,6 +224,7 @@ def generate(
             (batch_size,1,audio_length),
             diffusion_hyperparams,
             condition=ground_truth_mel_spectrogram,
+            guid_s=guid_s, noisy_signal=noisy_signal, cur_noise_var=cur_noise_var, guidance=guidance,
         )
         generated_audio.append(_audio)
     generated_audio = torch.cat(generated_audio, dim=0)
@@ -185,11 +237,20 @@ def generate(
         int(start.elapsed_time(end)/1000)))
 
     # save audio to .wav
+    if addedoutputpath:
+        outdir = os.path.join(addedoutputpath,"s"+str(guid_s))
+        if not os.path.exists(outdir):
+            os.mkdir(outdir)
     for i in range(n_samples):
         outfile = '{}k_{}.wav'.format(ckpt_iter // 1000, n_samples*rank + i)
         wavwrite(os.path.join(output_directory, outfile),
                     dataset_cfg["sampling_rate"],
                     generated_audio[i].squeeze().cpu().numpy())
+        if addedoutputpath:
+            wavwrite(os.path.join(outdir, outfile),
+                dataset_cfg["sampling_rate"],
+                generated_audio[i].squeeze().cpu().numpy())
+
 
         # save audio to tensorboard
         # tb = SummaryWriter(os.path.join('exp', local_path, tensorboard_directory))
