@@ -9,7 +9,7 @@ train: # Not used in generate.py
   iters_per_logging: 100
   n_iters: 1000001
   learning_rate: 2e-4
-  batch_size_per_gpu: 2
+  batch_size_per_gpu: 1
 
 generate:
   ckpt_iter: max # Which checkpoint to use; assign a number or "max". Is ignored when sampling during training
@@ -22,7 +22,7 @@ generate:
   noisy_signal: /data/ephraim/datasets/known_noise/noisy_wav/digits_snr10_var0.00047484078095294535.wav #path to noisy file
   cur_noise_var: null
   guidance: True
-  addedoutputpath: /data/ephraim/datasets/known_noise/enhanced_diffwave/
+  addedoutputpath: /data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/
 
 distributed:
   dist_backend: nccl

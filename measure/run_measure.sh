@@ -1,1 +1,1 @@
-for i in $(ls -d /data/ephraim/datasets/known_noise/enhanced_diffwave/*/); do python measure.py -enhanced_dir=${i}; done
+for i in $(ls -d /data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/*/); do python measure.py -enhanced_dir=${i} -out_stats_dir="/data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/snr10/"; done

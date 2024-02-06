@@ -22,6 +22,30 @@ from utils import find_max_epoch, print_size, calc_diffusion_hyperparams, local_
 
 import glob
 import torchaudio
+import json
+
+
+from audio_tools2  import *
+
+def calc_vad(f, verbose=False):
+    test_file=f
+    fs,s = read_wav(test_file)
+    win_len = int(fs*0.025)
+    hop_len = int(fs*0.010)
+    sframes = enframe(s,win_len,hop_len) # rows: frame index, cols: each frame
+    if verbose:
+        plot_this(compute_log_nrg(sframes))
+
+    # percent_high_nrg is the VAD context ratio. It helps smooth the
+    # output VAD decisions. Higher values are more strict.
+    percent_high_nrg = 0.5
+
+    vad = nrg_vad(sframes,percent_high_nrg)
+
+    if verbose:
+        plot_these(deframe(vad,win_len,hop_len),s)
+    return deframe(vad,win_len,hop_len) 
+
 
 def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy_signal=None, cur_noise_var=None, guidance=False):
     """
@@ -48,8 +72,7 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
     print('begin sampling, total number of reverse steps = %s' % T)
 
     if guidance:
-        POWER_X0 = 261.34 #1sec
-        # POWER_X0 = 1196.2209 #5sec
+        POWER_X0 = 0.0293 #1sec
         POWER_NOISE = 0.0005
         noisy_signal_, sr = torchaudio.load(noisy_signal)
         # size=(size[0],size[1],noisy_signal_.shape[1])
@@ -60,9 +83,12 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
             y_noisy[0,:,:] = noisy_signal_
         else:
             y_noisy[0,:,:] = noisy_signal_[:,:size[2]]
-            
-        power_y_noisy = 1 / y_noisy.shape[1] * torch.sum(y_noisy**2)
+        print("y_noisy.shape:",y_noisy.shape)
+        
+        power_y_noisy = 1 / y_noisy.shape[2] * torch.sum(y_noisy**2)
+        print(power_y_noisy)
         k_square = POWER_X0/(power_y_noisy - POWER_NOISE)
+        print(k_square)
         
         y_noisy = torch.sqrt(k_square)*y_noisy
         y_noisy=y_noisy.cuda()
@@ -95,13 +121,9 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
                 # print("Sigma[t]:", Sigma[t])
             if t > 0:
                 x = x + Sigma[t] * torch.normal(0, 1, size=size).cuda()  # add the variance term to x_{t-1}
-    power_x0 = 1 / x.shape[1] * torch.sum(x**2)
-    # power_y_noisy = 1 / y_noisy.shape[1] * torch.sum(y_noisy**2)
-    print("power_x0: ", power_x0)
-    if True:
-        wavwrite(os.path.join("/data/ephraim/datasets/known_noise/explore_powers/", str(float(power_x0))+".wav"),
-            16000,
-            x.squeeze().cpu().numpy())
+    print(x.shape)
+    simple_power2 = float(1 / x.shape[2] * torch.sum(x**2))
+    print("simple_power:", simple_power2)
     return x
 
 
@@ -228,6 +250,10 @@ def generate(
         )
         generated_audio.append(_audio)
     generated_audio = torch.cat(generated_audio, dim=0)
+    
+    
+   
+    
 
     end.record()
     torch.cuda.synchronize()
@@ -238,6 +264,8 @@ def generate(
 
     # save audio to .wav
     if addedoutputpath:
+        if not os.path.exists(addedoutputpath):
+            os.mkdir(addedoutputpath)
         outdir = os.path.join(addedoutputpath,"s"+str(guid_s))
         if not os.path.exists(outdir):
             os.mkdir(outdir)
@@ -247,9 +275,42 @@ def generate(
                     dataset_cfg["sampling_rate"],
                     generated_audio[i].squeeze().cpu().numpy())
         if addedoutputpath:
-            wavwrite(os.path.join(outdir, outfile),
+            target_path = os.path.join(outdir, outfile)
+            wavwrite(target_path,
                 dataset_cfg["sampling_rate"],
                 generated_audio[i].squeeze().cpu().numpy())
+        
+        if True:
+            x = generated_audio[i]
+            # power_y_noisy = 1 / y_noisy.shape[1] * torch.sum(y_noisy**2)
+            
+            vaded_signal = calc_vad(target_path)[0:x.shape[1],:]
+            vaded_signal_torch = (x[0][vaded_signal.T[0]>0])
+            vaded_signal_torch = torch.unsqueeze(vaded_signal_torch, dim=0)
+            simple_power = float(1 / x.shape[1] * torch.sum(x**2))
+            print("simple_power: ", simple_power)
+            try:
+                clean_power = float( 1 / vaded_signal_torch.shape[1] * torch.sum(vaded_signal_torch**2))
+                print("clean_power: ", clean_power)
+            except:
+                clean_power=0
+            
+            wavwrite(os.path.join("/data/ephraim/datasets/known_noise/explore_powers/", str(float(simple_power))+".wav"),
+                16000,
+                x.squeeze().cpu().numpy())
+            
+            documentation =  {str(guid_s): {"simple_power": simple_power,"clean_power": clean_power} }
+            print(documentation)
+        
+            stats_path = "power_stats.json"
+            with open(stats_path, "r+") as file1:
+                file_data = json.load(file1)
+                if not file_data:
+                    file_data["samples"] = [documentation]
+                else:
+                    file_data["samples"].append(documentation)
+                file1.seek(0)
+                json.dump(file_data, file1)
 
 
         # save audio to tensorboard
