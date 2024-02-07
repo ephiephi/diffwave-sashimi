@@ -6,7 +6,7 @@ import argparse
 
 
 # exp_dir = "/data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/"
-def main(exp_dir):
+def main(exp_dir, clean_dir, noisy_dir):
     snr_dirs = glob(exp_dir+"*/")
     for snr_dir in tqdm(snr_dirs): 
         # snr_dir = "/data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/snr10/"
@@ -15,7 +15,7 @@ def main(exp_dir):
             os.remove(stats_path)
         s_dirs =glob(snr_dir+"*/")
         for d in tqdm(s_dirs):
-            command = "python measure.py -enhanced_dir={} -out_stats_dir={}".format(d,snr_dir)
+            command = "python measure.py -enhanced_dir={} -out_stats_dir={} -clean_dir {} -noisy_dir {}".format(d,snr_dir, clean_dir, noisy_dir)
             os.system(command)
 
 if __name__ == "__main__":
@@ -24,9 +24,17 @@ if __name__ == "__main__":
         "-exp_dir",
         default="/data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/",
     )
+    parser.add_argument(
+        "-clean_dir", default="/data/ephraim/datasets/known_noise/clean_wav/"
+    )
+    parser.add_argument(
+        "-noisy_dir", default="/data/ephraim/datasets/known_noise/noisy_wav/"
+    )
 
 
     args = parser.parse_args()
     main(
-        args.exp_dir
+        args.exp_dir,
+        args.clean_dir,
+        args.noisy_dir
     )

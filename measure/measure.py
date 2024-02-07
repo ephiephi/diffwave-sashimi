@@ -225,10 +225,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "-clean_dir", default="/data/ephraim/datasets/known_noise/clean_wav/"
     )
+    parser.add_argument(
+        "-noisy_dir", default="/data/ephraim/datasets/known_noise/noisy_wav/"
+    )
 
     args = parser.parse_args()
     main_measure(
         args.enhanced_dir,
         args.clean_dir,
-        args.out_stats_dir
+        args.out_stats_dir,
+        noisy_dir=args.noisy_dir
     )
