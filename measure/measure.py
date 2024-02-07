@@ -74,7 +74,7 @@ def main_measure(
         # print(stats_mos)
 
         
-    documentation =  {"pesq": str(stats["pesq_enhanced"]["mean"]),"stoi": str(stats["stoi_enhanced"]["mean"]), "OVRL": str(stats_mos["OVRL"]["mean"]), "SIG": str(stats_mos["SIG"]["mean"]), "BAK": stats_mos["BAK"]["mean"], "enhance_dir": str(enhance_dir), "args": str(args)}
+    documentation =  {"pesq": str(stats["pesq_enhanced"]["mean"]),"stoi": str(stats["stoi_enhanced"]["mean"]), "OVRL": str(stats_mos["OVRL"]["mean"]), "SIG": str(stats_mos["SIG"]["mean"]), "BAK": str(stats_mos["BAK"]["mean"]), "enhance_dir": str(enhance_dir), "args": str(args)}
     
     stats_path =os.path.join(out_stats_dir, "stats_dns.json")
     s_param = os.path.basename(os.path.normpath(enhance_dir))
@@ -90,7 +90,7 @@ def main_measure(
             file_data = {}
             file_data[str(s_param)] = documentation
             # file1.write(documentation)
-            file1.seek(0)
+            # file1.seek(0)
             json.dump(file_data, file1)
 
 
@@ -148,8 +148,8 @@ def calc_measures(noisy_dir, clean_dir, enhance_dir):
                 )
                 stoi_enhanced = float(np.mean(stoi_enhanced_array))
                 pesq_enhanced = float(np.mean(pesq_enhanced_array))
-                # print("pesq_enhanced_array: ",pesq_enhanced_array)
-                # print("pesq_enhanced: ",pesq_enhanced)
+                print("pesq_enhanced_array: ",pesq_enhanced_array)
+                print("pesq_enhanced: ",pesq_enhanced)
         except: 
             print("------------- failed --------------", enhance_dir)
             dont_calculated.append(ref_filename)
@@ -185,6 +185,10 @@ def calc_measures(noisy_dir, clean_dir, enhance_dir):
         results["stoi_enhanced"][ref_filename] = stoi_enhanced
         results["pesq_enhanced"][ref_filename] = pesq_enhanced
         df = pd.DataFrame.from_dict(results)
+        print("pesq_enhanced: ", pesq_enhanced)
+        print("pesq_noisy: ", pesq_noise)
+        print(df["pesq_noisy"])
+        print(df["pesq_enhanced"])
         df["pesq_diff"] = df["pesq_enhanced"].sub(df["pesq_noisy"])
         df["stoi_diff"] = df["stoi_enhanced"].sub(df["stoi_noisy"])
         # else:
@@ -212,7 +216,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="measure guided")
     parser.add_argument(
         "-enhanced_dir",
-        default="/data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/snr5/s1e-06/",
+        default="/data/ephraim/datasets/known_noise/enhanced_diffwave_1sec/snr5/s0.001/",
     )
     parser.add_argument(
         "-out_stats_dir",
