@@ -73,7 +73,9 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
 
     if guidance:
         POWER_X0 = 0.0293 #1sec
-        POWER_NOISE = 0.0005
+        POWER_NOISE = float(noisy_signal.split("power")[1].split("_var")[0])
+        # POWER_NOISE = 0.0005 ######### for exp1g
+                
         noisy_signal_, sr = torchaudio.load(noisy_signal)
         # size=(size[0],size[1],noisy_signal_.shape[1])
         y_noisy = torch.zeros(*size)
@@ -85,16 +87,46 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
             y_noisy[0,:,:] = noisy_signal_[:,:size[2]]
         print("y_noisy.shape:",y_noisy.shape)
         
-        power_y_noisy = 1 / y_noisy.shape[2] * torch.sum(y_noisy**2)
-        print(power_y_noisy)
-        k_square = POWER_X0/(power_y_noisy - POWER_NOISE)
-        print(k_square)
+        simple_power_y_noisy = 1 / y_noisy.shape[2] * torch.sum(y_noisy**2)
+        print("simple_power_y_noisy:", simple_power_y_noisy)
         
+        #for exp1i
+        y_noisy2 = torch.zeros((1,1,noisy_signal_.shape[1]))
+        print("y_noisy2.shape: ", y_noisy2.shape)
+        y_noisy2[0,:,:] = noisy_signal_[:,:]
+        path_speech = "/data/ephraim/datasets/known_noise/exp1i/clean_wav/clean5sec.wav"
+        vaded_signal = calc_vad(path_speech)[0:y_noisy2.shape[2],:]
+        vaded_lossy_speech_torch = (y_noisy2[0,0,:][vaded_signal.T[0]>0])
+        vaded_lossy_speech_torch = torch.unsqueeze(vaded_lossy_speech_torch, dim=0)
+        power_y_noisy = ( 1 / vaded_lossy_speech_torch.shape[1] * torch.sum(vaded_lossy_speech_torch**2))
+        print("power_y_noisy: ", power_y_noisy)
+        print("y_noisy[0,0,:]", y_noisy2[0,0,:])
+        
+        #for exp1h
+        # path_speech="/data/ephraim/datasets/known_noise/clean_wav/0a196374_nohash_0_4.wav"
+        # vaded_signal = calc_vad(path_speech)[0:y_noisy.shape[2],:]
+        # vaded_lossy_speech_torch = (y_noisy[0,0,:][vaded_signal.T[0]>0])
+        # vaded_lossy_speech_torch = torch.unsqueeze(vaded_lossy_speech_torch, dim=0)
+        # power_y_noisy = ( 1 / vaded_lossy_speech_torch.shape[1] * torch.sum(vaded_lossy_speech_torch**2))
+        # print("power_y_noisy: ", power_y_noisy)
+        # print("y_noisy[0,0,:]", y_noisy[0,0,:])
+        #end exp1h
+        
+        k_square = POWER_X0/(power_y_noisy - POWER_NOISE)
+        # k_square = torch.tensor(POWER_X0/0.017253926023840904)  ####for exp1f, clean power of speech 
+        print("k_square: ", k_square)
+        
+        ##############attenation
+        # k_square = torch.tensor(1)   #for exp1e
+        # print("----------")
+        # print("######attention! force k =1 #####")
+        # print("----------")
         y_noisy = torch.sqrt(k_square)*y_noisy
         y_noisy=y_noisy.cuda()
         cur_noise_var = float(noisy_signal.split("var")[1].split(".wav")[0])
-        print("cur_noise_var: ", cur_noise_var)
+        print("cur_noise_var_before: ", cur_noise_var)
         cur_noise_var = k_square * cur_noise_var
+        print("cur_noise_var_after: ", cur_noise_var)
         
     # torch.manual_seed(0)
     x = torch.normal(0, 1, size=size).cuda()
@@ -108,11 +140,13 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
             else:
                 # print("Alpha_bar[t]: ", Alpha_bar[t])
                 c3 = 1 / torch.sqrt(Alpha_bar[t])
-                c4 = ((1 - Alpha_bar[t]) ** 2) / Alpha_bar[t]
+                # c4 = ((1 - Alpha_bar[t]) ** 2) / Alpha_bar[t] # mistake of equations
+                c4 = (1 - Alpha_bar[t]) / Alpha_bar[t]
                 # print("c3: ", c3)
                 # print("c4: ", c4)
                 # print("x_before: ", x)
-                grad_log_p = c3 * (y_noisy - c3 * x) / (c4 + cur_noise_var) ** 2
+                # grad_log_p = c3 * (y_noisy - c3 * x) / (c4 + cur_noise_var) ** 2 #bug
+                grad_log_p = c3 * (y_noisy - c3 * mu_theta) / (c4 + cur_noise_var) ** 2
                 x = mu_theta + guid_s * Sigma[t] * grad_log_p
                 # print("x_after: ", x)
                 # print("guid_s: ", guid_s)
@@ -124,7 +158,7 @@ def sampling(net, size, diffusion_hyperparams, condition=None, guid_s=0.1, noisy
     print(x.shape)
     simple_power2 = float(1 / x.shape[2] * torch.sum(x**2))
     print("simple_power:", simple_power2)
-    return x
+    return x, k_square
 
 
 @torch.no_grad()
@@ -239,9 +273,9 @@ def generate(
     start.record()
 
     generated_audio = []
-
+    k_squares=[]
     for _ in range(n_samples // batch_size):
-        _audio = sampling(
+        _audio, k_square = sampling(
             net,
             (batch_size,1,audio_length),
             diffusion_hyperparams,
@@ -249,10 +283,11 @@ def generate(
             guid_s=guid_s, noisy_signal=noisy_signal, cur_noise_var=cur_noise_var, guidance=guidance,
         )
         generated_audio.append(_audio)
+        k_squares.append(k_square)
     generated_audio = torch.cat(generated_audio, dim=0)
     
     
-   
+
     
 
     end.record()
@@ -299,10 +334,14 @@ def generate(
                 16000,
                 x.squeeze().cpu().numpy())
             
-            documentation =  {str(guid_s): {"simple_power": simple_power,"clean_power": clean_power} }
+            documentation =  {str(guid_s): {"simple_power": simple_power,"clean_power": clean_power,"k_square": str(k_squares)} }
             print(documentation)
         
-            stats_path = "power_stats.json"
+            ###################### todo
+            stats_path =os.path.join(addedoutputpath,"power_stats.json")
+            if not os.path.exists(stats_path):
+                with open(stats_path, "w") as outfile:
+                    json.dump({}, outfile)
             with open(stats_path, "r+") as file1:
                 file_data = json.load(file1)
                 if not file_data:
